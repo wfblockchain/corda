@@ -40,6 +40,9 @@ import javax.security.auth.x500.X500Principal
  * Generate the complete tree of certificates for A' or A, based on a config. This is for non-PROD use.
  * Create CSRs for the nodes and keep the keys in JKS
  * Example confs are in /Users/johnz/certs/wfc/cert_defs.conf and csr_defs.conf
+ * Two commands: cert and csr, only one can execute at a time
+ * Each command must have its own --config; --output is optional - if not provided, output will be in
+ * either the certs or csrs subfolder of the folder where config file is.
  */
 fun main(args: Array<String>) {
     CertGen().start(args)
