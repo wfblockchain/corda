@@ -1,7 +1,7 @@
 apply plugin: 'java'
 apply plugin: 'kotlin'
 
-description 'NetworkParameters signing tool'
+description 'Certificate generation tool for a test Corda network'
 
 dependencies {
     compile project(':tools:cliutils')
