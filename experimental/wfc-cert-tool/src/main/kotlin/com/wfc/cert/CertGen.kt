@@ -327,7 +327,7 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
         }
     }
 
-    private fun generateCSRAndCert(legalName: CordaX500Name, certRole: CertRole): Triple<KeyPair, PKCS10CertificationRequest, X509Certificate> {
+    private fun generateCSRAndCert(legalName: CordaX500Name, certRole: CertRole, zone: String): Triple<KeyPair, PKCS10CertificationRequest, X509Certificate> {
         val signatureScheme = eccScheme
         val keyPair = Crypto.generateKeyPair(signatureScheme)
         val signer = ContentSignerBuilder.build(signatureScheme, keyPair.private, Crypto.findProvider(signatureScheme.providerName))
@@ -335,22 +335,29 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
         /**
          * Basic Constraint
          */
-        val basicConstraints = BasicConstraints(true)
+        val basicConstraints = BasicConstraints(false)
         extGen.addExtension(Extension.basicConstraints, true, basicConstraints)
         /**
          * Key Usage
+         * per Rich Stec, he will set KU himself.
          */
-        val keyUsage = KeyUsage (KeyUsage.digitalSignature or KeyUsage.keyCertSign)
-        extGen.addExtension(Extension.keyUsage, true, keyUsage)
+//        val keyUsage = KeyUsage (KeyUsage.digitalSignature or KeyUsage.keyCertSign)
+//        extGen.addExtension(Extension.keyUsage, true, keyUsage)
         /**
          * Extended Key Usage
+         * per Rich Stec, he will set EKU himself
          */
-        val extendedKeyUsage = ExtendedKeyUsage(arrayOf(KeyPurposeId.id_kp_codeSigning, KeyPurposeId.id_kp_clientAuth))
-        extGen.addExtension(Extension.extendedKeyUsage, true, extendedKeyUsage)
+//        val extendedKeyUsage = ExtendedKeyUsage(arrayOf(KeyPurposeId.id_kp_codeSigning, KeyPurposeId.id_kp_clientAuth))
+//        extGen.addExtension(Extension.extendedKeyUsage, true, extendedKeyUsage)
 
+        /**
+         * per Rich Stec, he will set Email and certRole
+         * Add attribute Corda-Zone
+         */
         val csr = JcaPKCS10CertificationRequestBuilder(legalName.x500Principal, keyPair.public)
-                .addAttribute(BCStyle.E, DERUTF8String("test@mysite.com"))
-                .addAttribute(ASN1ObjectIdentifier(CordaOID.X509_EXTENSION_CORDA_ROLE), certRole)
+//                .addAttribute(BCStyle.E, DERUTF8String("test@mysite.com"))
+//                .addAttribute(ASN1ObjectIdentifier(CordaOID.X509_EXTENSION_CORDA_ROLE), certRole)
+                .addAttribute(ASN1ObjectIdentifier("2.16.840.1.114171.4.1.2.7"), DERUTF8String(zone))
                 .addAttribute(PKCSObjectIdentifiers.pkcs_9_at_extensionRequest, extGen.generate())
                 .build(signer).apply {
                     if (!isSignatureValid()) {
@@ -371,8 +378,8 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
         val builder = JcaX509v3CertificateBuilder(legalName.x500Principal, serial, notBefore, notAfter, legalName.x500Principal, keyPair.public)
                 .addExtension(ASN1ObjectIdentifier(CordaOID.X509_EXTENSION_CORDA_ROLE), false, certRole)
                 .addExtension(Extension.basicConstraints, true, basicConstraints)
-                .addExtension(Extension.keyUsage, false, keyUsage)
-                .addExtension(Extension.extendedKeyUsage, false, extendedKeyUsage)
+//                .addExtension(Extension.keyUsage, false, keyUsage)
+//                .addExtension(Extension.extendedKeyUsage, false, extendedKeyUsage)
         val cert = builder.build(signer).run {
             require(isValidOn(Date()))
             require(isSignatureValid(JcaContentVerifierProviderBuilder().build(keyPair.public))){"Invalid signature"}
@@ -389,14 +396,15 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
         val alias = csrDef.alias
         val storepass = csrDef.storepass
         val keypass = csrDef.keypass
+        val zone = csrDef.zone
         csrDef.nodes.forEachIndexed { index, legalName ->
-            setOf("dummy", "identity", "ssl").forEach {
+            setOf("dummyca", "identity", "tls").forEach {
                 val certRole = when(it) {
-                    "dummy" -> CertRole.NODE_CA
+                    "dummyca" -> CertRole.NODE_CA
                     "identity" -> CertRole.LEGAL_IDENTITY
                     else -> CertRole.TLS
                 }
-                val (keyPair, csr, cert) = generateCSRAndCert(legalName, certRole)
+                val (keyPair, csr, cert) = generateCSRAndCert(legalName, certRole, zone)
                 val keystoreFile = outputFile("${folderNameFromLegalName(legalName).toLowerCase()}_$it.jks")
                 val keystore = loadOrCreateKeyStore(keystoreFile, storepass)
                 keystore.setKeyEntry(alias, keyPair.private, keypass.toCharArray(), arrayOf(cert))
@@ -421,12 +429,13 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
         val alias = csrDef.alias
         val storepass = csrDef.storepass
         val keypass = csrDef.keypass
+        val zone = csrDef.zone
         listOf(csrDef.networkMap, csrDef.networkParameters).forEachIndexed { index, legalName ->
             val certRole = when (index) {
                 0 -> CertRole.NETWORK_MAP
                 else -> CertRole.NETWORK_PARAMETERS
             }
-            val (keyPair, csr, cert) = generateCSRAndCert(legalName, certRole)
+            val (keyPair, csr, cert) = generateCSRAndCert(legalName, certRole, zone)
             val keystoreFile = outputFile("${folderNameFromLegalName(legalName).toLowerCase()}.jks")
             val keystore = loadOrCreateKeyStore(keystoreFile, storepass)
             keystore.setKeyEntry(alias, keyPair.private, keypass.toCharArray(), arrayOf(cert))
@@ -645,8 +654,10 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
     }
 
     private fun passCSRConfig(config: Config) : CSRDef {
+        val zone = config.getString("zone") ?: "DEV"
         val nodes = config.getStringList("nodes").map { CordaX500Name.parse(it) }
         return CSRDef (
+                zone = zone,
                 nodes = nodes,
                 networkMap = CordaX500Name.parse(config.getString("networkMap")),
                 networkParameters = CordaX500Name.parse(config.getString("networkParameters")),
@@ -694,6 +705,7 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
     )
 
     data class CSRDef (
+       val zone: String = "DEV",
        val nodes: List<CordaX500Name>,
        val networkMap: CordaX500Name,
        val networkParameters: CordaX500Name,
