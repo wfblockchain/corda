@@ -38,7 +38,7 @@ import javax.security.auth.x500.X500Principal
 /**
  * WFC Internal Corda Network Certificate Utility Tool
  * Generate the complete tree of certificates for A' or A, based on a config. This is for non-PROD use.
- * Create CSRs for the nodes and keep the keys in JKS
+ * Create CSRs for the nodes and/or networkmap and/or networkparameters and keep the keys in JKS
  * Example confs are in resources/cert_defs.conf and csr_defs.conf
  * Two commands: cert and csr, only one can execute at a time
  * Each command must have its own --config; --output is optional - if not provided, output will be in
@@ -98,7 +98,9 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
     private fun generateCSRs(configFile: Path) {
         val csrDef = csrDefFromConfig(configFile)
         createNodeCSRAndKeystores(csrDef)
-        createNetworkCSRAndKeystores(csrDef)
+        if (csrDef.networkMap != null) createNetworkCSRAndKeystore(csrDef, csrDef.networkMap, CertRole.NETWORK_MAP)
+        if (csrDef.networkParameters != null) createNetworkCSRAndKeystore(csrDef, csrDef.networkParameters, CertRole.NETWORK_PARAMETERS)
+//        createNetworkCSRAndKeystores(csrDef)
     }
 
     private fun createRootAndTrustKeystores(certDef: CertDef): Pair<Path, Path> {
@@ -397,7 +399,7 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
         val storepass = csrDef.storepass
         val keypass = csrDef.keypass
         val zone = csrDef.zone
-        csrDef.nodes.forEachIndexed { index, legalName ->
+        csrDef.nodes?.forEachIndexed { index, legalName ->
             setOf("dummyca", "identity", "tls").forEach {
                 val certRole = when(it) {
                     "dummyca" -> CertRole.NODE_CA
@@ -422,15 +424,33 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
         }
     }
 
-    private fun createNetworkCSRAndKeystores(csrDef: CSRDef) {
-        /**
-         * For each node, generate 3 pairs of pem and jks
-         */
+    private fun createNetworkCSRAndKeystore(csrDef: CSRDef, legalName: CordaX500Name, certRole: CertRole) {
         val alias = csrDef.alias
         val storepass = csrDef.storepass
         val keypass = csrDef.keypass
         val zone = csrDef.zone
-        listOf(csrDef.networkMap, csrDef.networkParameters).forEachIndexed { index, legalName ->
+        val (keyPair, csr, cert) = generateCSRAndCert(legalName, certRole, zone)
+        val keystoreFile = outputFile("${folderNameFromLegalName(legalName).toLowerCase()}.jks")
+        val keystore = loadOrCreateKeyStore(keystoreFile, storepass)
+        keystore.setKeyEntry(alias, keyPair.private, keypass.toCharArray(), arrayOf(cert))
+        keystore.save(keystoreFile, storepass)
+
+        /**
+         * Note: We save p10 after jks because when the parent folder csrs does not exists, JcaPENWriter errs out
+         * while loadOrCreateKeyStore can handle the situation.
+         */
+        val csrFile = outputFile("${folderNameFromLegalName(legalName).toLowerCase()}.p10")
+        JcaPEMWriter(csrFile.writer()).use {
+            it.writeObject(PemObject("CERTIFICATE REQUEST", csr.encoded))
+        }
+    }
+
+    private fun createNetworkCSRAndKeystores(csrDef: CSRDef) {
+        val alias = csrDef.alias
+        val storepass = csrDef.storepass
+        val keypass = csrDef.keypass
+        val zone = csrDef.zone
+        listOf(csrDef.networkMap!!, csrDef.networkParameters!!).forEachIndexed { index, legalName ->
             val certRole = when (index) {
                 0 -> CertRole.NETWORK_MAP
                 else -> CertRole.NETWORK_PARAMETERS
@@ -598,7 +618,7 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
     }
 
     private fun passCertConfig(config: Config) : CertDef {
-        val zone = config.getString("zone") ?: "DEV"
+        val zone = if (config.hasPath("zone")) config.getString("zone") else "DEV"
         val root = NameAndPass(
                 legalName = CordaX500Name.parse(config.getString("root.legalName") ?: "O=RootCA, L=Dallas, C=US"),
                 storepass = config.getString("root.storepass") ?: "trustpass",
@@ -654,13 +674,14 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
     }
 
     private fun passCSRConfig(config: Config) : CSRDef {
-        val zone = config.getString("zone") ?: "DEV"
-        val nodes = config.getStringList("nodes").map { CordaX500Name.parse(it) }
+        val zone = if (config.hasPath("zone")) config.getString("zone") else "DEV"
+        val nodes = if (config.hasPath("nodes")) config.getStringList("nodes").map { CordaX500Name.parse(it) } else emptyList()
         return CSRDef (
                 zone = zone,
                 nodes = nodes,
-                networkMap = CordaX500Name.parse(config.getString("networkMap")),
-                networkParameters = CordaX500Name.parse(config.getString("networkParameters")),
+                networkMap = if (config.hasPath("networkMap")) CordaX500Name.parse(config.getString("networkMap")) else null,
+                networkParameters = if (config.hasPath("networkParameters")) CordaX500Name.parse(config.getString("networkParameters")) else null,
+//                networkParameters = config.getString("networkParameters") ?.let { CordaX500Name.parse(it) },
                 alias = config.getString("alias"),
                 storepass = config.getString("storepass"),
                 keypass = config.getString("keypass")
@@ -706,9 +727,9 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
 
     data class CSRDef (
        val zone: String = "DEV",
-       val nodes: List<CordaX500Name>,
-       val networkMap: CordaX500Name,
-       val networkParameters: CordaX500Name,
+       val nodes: List<CordaX500Name>?,
+       val networkMap: CordaX500Name?,
+       val networkParameters: CordaX500Name?,
        val alias: String,
        val storepass: String,
        val keypass: String
