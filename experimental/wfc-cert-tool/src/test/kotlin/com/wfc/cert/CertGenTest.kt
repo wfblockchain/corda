@@ -39,6 +39,7 @@ class CertGenTest {
         val cert = X509Utilities.loadCertificateFromPEMFile(cerFile)
         val keyStore = loadOrCreateKeyStore(jksFile, "trustpass")
         keyStore.setCertificateEntry("cordarootca", cert)
+//        keyStore.deleteEntry("abc")
         keyStore.save(jksFile, "trustpass")
 
         val reloadedKeystore = loadOrCreateKeyStore(jksFile, "trustpass")
@@ -99,8 +100,8 @@ class CertGenTest {
 
     @Test
     fun `ssl`() {
-        val party = "notaryha"
-//        val party = "partyc"
+//        val party = "notaryha"
+        val party = "partya"
         val sourceStorepass = "trustpass"
         val sourceKeypass = "trustpass"
         val targetStorepass = "cordacadevpass"
@@ -117,7 +118,7 @@ class CertGenTest {
         val targetKeyStore = loadOrCreateKeyStore(targetJKSFile, targetStorepass)
 
         val rootCert = X509Utilities.loadCertificateFromPEMFile(caCerFile("rca.cer"))
-        val issuingCA2Cert = X509Utilities.loadCertificateFromPEMFile(caCerFile("ica2.cer"))
+        val issuingCA2Cert = X509Utilities.loadCertificateFromPEMFile(caCerFile("ica1.cer"))
         val cert = X509Utilities.loadCertificateFromPEMFile(cerFile)
 
         targetKeyStore.setKeyEntry(targetAlias, privateKey, targetKeypass.toCharArray(), arrayOf(cert, issuingCA2Cert, rootCert))
@@ -128,8 +129,8 @@ class CertGenTest {
 
     @Test
     fun `node`() {
-        val party = "notaryha"
-//        val party = "partyc"
+//        val party = "notaryha"
+        val party = "partya"
         val sourceStorepass = "trustpass"
         val sourceKeypass = "trustpass"
         val targetStorepass = "cordacadevpass"
@@ -151,7 +152,7 @@ class CertGenTest {
         val targetKeyStore = loadOrCreateKeyStore(targetJKSFile, targetStorepass)
 
         val rootCert = X509Utilities.loadCertificateFromPEMFile(caCerFile("rca.cer"))
-        val issuingCA2Cert = X509Utilities.loadCertificateFromPEMFile(caCerFile("ica2.cer"))
+        val issuingCA2Cert = X509Utilities.loadCertificateFromPEMFile(caCerFile("ica1.cer"))
         val cert_identity = X509Utilities.loadCertificateFromPEMFile(cerFile_identity)
         val cert_dummy = X509Utilities.loadCertificateFromPEMFile(cerFile_dummy)
 
