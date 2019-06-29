@@ -3,6 +3,9 @@
 For generating complete tree of certicates packed in jks files for A' and A+, based on a config. This is for non-PROD use only.
 A sample config is in resources\cert_defs.conf.
 To run it in IntelliJ IDEA, try the run configuration cert.
+(In run configuration, set
+Use classpath of module as corda-project.experimental.wfc-cert-tool.main
+Main class as com.wfc.cert.CertGenKt)
 
 For creating CSRs for the nodes and/or networkmap and/or networkparameters in .p10 as well as the keys in JKS for both testing and PROD, based on a config.
 A sample config is in resources\csr_defs.conf. The conf can have 0 or more nodes, 0 or 1 networkmap, 0 or 1 networkparameters.
@@ -35,7 +38,6 @@ base-directory/certificates for jksOnNode.
 --keystore-pass - overrides the default password for store and key when jks and jksOnNode create node and ssl keystores.
 --truststore-pass - overrides the default password for the trust store and key
 --network-keystore-pass - overrides the default password for the networkmap and networkparameters store and key 
-
 
 Some examples
 To generate certs, without --output, it defaults to /Users/johnz/certs/wfc/sit/certs
