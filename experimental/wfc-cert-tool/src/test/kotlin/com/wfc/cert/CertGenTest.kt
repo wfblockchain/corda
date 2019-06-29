@@ -57,7 +57,7 @@ class CertGenTest {
 
         val cerFile = cerFile("networkmap.cer")
         val sourceJKSFile = csrFile("networkmap.jks")
-        val targetJKSFile = cerFile("networkmap.jks")
+        val targetJKSFile = caCerFile("networkmap.jks")
 
         val sourceKetStore = loadOrCreateKeyStore(sourceJKSFile, storepass)
         val privateKey = sourceKetStore.getKey(sourceAlias, keypass.toCharArray())
@@ -82,7 +82,7 @@ class CertGenTest {
 
         val cerFile = cerFile("networkparameters.cer")
         val sourceJKSFile = csrFile("networkparameters.jks")
-        val targetJKSFile = cerFile("networkparameters.jks")
+        val targetJKSFile = caCerFile("networkparameters.jks")
 
         val sourceKetStore = loadOrCreateKeyStore(sourceJKSFile, storepass)
         val privateKey = sourceKetStore.getKey(sourceAlias, keypass.toCharArray())
@@ -111,7 +111,7 @@ class CertGenTest {
 
         val cerFile = cerFile("${party}_tls.cer")
         val sourceJKSFile = csrFile("${party}_tls.jks")
-        val targetJKSFile = cerFile("${party}/sslkeystore.jks")
+        val targetJKSFile = caCerFile("${party}/sslkeystore.jks")
 
         val sourceKetStore = loadOrCreateKeyStore(sourceJKSFile, sourceStorepass)
         val privateKey = sourceKetStore.getKey(sourceAlias, sourceKeypass.toCharArray())
@@ -143,7 +143,7 @@ class CertGenTest {
         val cerFile_dummy = cerFile("${party}_dummyca.cer")
         val sourceJKSFile_identity = csrFile("${party}_identity.jks")
         val sourceJKSFile_dummy = csrFile("${party}_dummyca.jks")
-        val targetJKSFile = cerFile("${party}/nodekeystore.jks")
+        val targetJKSFile = caCerFile("${party}/nodekeystore.jks")
 
         val sourceKetStore_identity = loadOrCreateKeyStore(sourceJKSFile_identity, sourceStorepass)
         val sourceKetStore_dummy = loadOrCreateKeyStore(sourceJKSFile_dummy, sourceStorepass)

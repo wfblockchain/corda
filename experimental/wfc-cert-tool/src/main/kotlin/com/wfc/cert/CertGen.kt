@@ -15,7 +15,6 @@ import net.corda.core.internal.writer
 import net.corda.nodeapi.internal.crypto.*
 import org.bouncycastle.asn1.*
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers
-import org.bouncycastle.asn1.x500.style.BCStyle
 import org.bouncycastle.asn1.x509.*
 import org.bouncycastle.cert.bc.BcX509ExtensionUtils
 import org.bouncycastle.cert.jcajce.JcaX509ExtensionUtils
@@ -55,21 +54,101 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
     @Option(names = ["csr"], description = ["Command to generate CSRs"])
     private var csr: Boolean = false
 
+    @Option(names = ["csrOnNode"], description = ["Command to generate CSRs directly on the node"])
+    private var csrOnNode: Boolean = false
+
+    @Option(names = ["truststore"], description = ["Command to generate truststore.jks from cer"])
+    private var truststore: Boolean = false
+    @Option(names = ["jks"], description = ["Command to generate jks files for networkmap, networkparameters, node, ssl"])
+    private var jks: Boolean = false
+    @Option(names = ["jksOnNode"], description = ["Command to generate jks files for node, ssl directly on the node"])
+    private var jksOnNode: Boolean = false
+//    @Option(names = ["networkmap"], description = ["Command to generate networkmap.jks"])
+//    private var networkmap: Boolean = false
+//    @Option(names = ["networkparameters"], description = ["Command to generate networkparameters.jks"])
+//    private var networkparameters: Boolean = false
+//    @Option(names = ["node"], description = ["Command to generate nodekeystore.jks"])
+//    private var node: Boolean = false
+//    @Option(names = ["ssl"], description = ["Command to generate sslkeystore.jks"])
+//    private var ssl: Boolean = false
+
+    /**
+     * It is required for cert, csr, csrOnNode, jks, jksOnNode.
+     * csr and jks share the same conf.
+     * That means after csrs have been created, we should keep the corresponding conf and use
+     * it for jks.
+     * For csrOnNode and jksOnNode, we also use node.conf, which is in base-directory.
+     */
     @Option(names = ["--config"], paramLabel = "file", description = ["Path to the conf file."])
     private var configFile: Path? = null
 
+    /**
+     * For jks, this folder has the private keys genereated when csr was called.
+     * It is the --output folder for the csr command.
+     * It is required for jks.
+     * For jksOnNode, it uses base-directory/csr
+     */
+    @Option(names = ["--csr"], paramLabel = "file", description = ["Path to csr folder."])
+    private var csrFolder: Path? = null
+
+    /**
+     * This is the folder where the issued .cer files are. We assume that the folder itself
+     * holds rca.cer, ica1.cer, ica2.cer and the subfolder ./cer holds the other .cer files.
+     * For jksOnNode, it uses base-directory/cer and base-directory/cer/cer.
+     */
+    @Option(names = ["--cer"], paramLabel = "file", description = ["Path to cer folder."])
+    private var cerFolder: Path? = null
+
+    /**
+     * This is required for csrOnNode and jksOnNode.
+     */
+    @Option(names = ["--base-directory"], paramLabel = "file", description = ["Path to the Corda node folder."])
+    private var base_directory: Path? = null
+
+    /**
+     *
+     */
     @Option(names = ["--output"], paramLabel = "file", description = ["Path to output folder."])
     private var outputFolder: Path? = null
 
+    @Option(names = ["--keystore-pass"], paramLabel = "password", description = ["Password for the node and ssl keystores."])
+    private var keystorepass: String = "cordacadevpass"
+
+    @Option(names = ["--truststore-pass"], paramLabel = "password", description = ["Password for the truststore."])
+    private var truststorepass: String = "trustpass"
+
+    @Option(names = ["--network-keystore-pass"], paramLabel = "password", description = ["Password for the networkMap and networkparameters keystores."])
+    private var networkkeystorepass: String = "trustpass"
+
+    private fun Boolean.toInt() = if (this) 1 else 0
+
     override fun runProgram(): Int {
-        require(cert.xor(csr)) { "One and only one of commands cert and csr must be specified" }
-        require(configFile != null) { "The --config parameter must be specified" }
-        if (outputFolder == null) outputFolder = ((configFile!!.parent) / (if (cert) "certs" else "csrs"))
+        require(cert.toInt() + csr.toInt() + csrOnNode.toInt() + truststore.toInt() + jks.toInt() + jksOnNode.toInt() == 1) { "One and only one must be specified" }
+//        require(cert.toInt() + csr.toInt() + truststore.toInt() + networkmap.toInt() + networkparameters.toInt() + node.toInt() + ssl.toInt() == 1) { "One and only one must be specified" }
+//        require(cert.xor(csr)) { "One and only one of commands cert and csr must be specified" }
+        require(((cert || csr || jksOnNode || jks || jksOnNode) && configFile != null) || !(cert || csr || jksOnNode || jks || jksOnNode)) { "The --config parameter must be specified for cert, csr, csrOnNode, jks and jksOnNode" }
+        require((jks && csrFolder != null) || !jks) { "jks requires csr folder" }
+        require(((truststore || jks) && cerFolder != null) || !(truststore || jks)) { "truststore and jks require cer folder" }
+        require(((csrOnNode || jksOnNode) && base_directory != null) || !(csrOnNode || jksOnNode)) { "csrOnNode and jksOnNode require base-directory folder" }
+
+        if (outputFolder == null) outputFolder = if (cert) (configFile!!.parent) / "certs" else if (csr) (configFile!!.parent) / "csrs" else if (truststore || jks) cerFolder else null
+        if (csrOnNode) outputFolder = base_directory!! / "csr"
+        if (jksOnNode) outputFolder = base_directory!! / "certificates"
+        if (jksOnNode) csrFolder = base_directory!! / "csr"
+        if (jksOnNode) cerFolder = base_directory!! / "cer"
 
         if (cert) {
             generateCerts(configFile!!)
-        } else {
+        } else if (csr) {
             generateCSRs(configFile!!)
+        } else if (csrOnNode) {
+            generateCSRsOnNode(configFile!!)
+        } else if (truststore) {
+            createTrustStore()
+        } else if (jks) {
+            createJKSs(configFile!!)
+        } else if (jksOnNode) {
+            createJKSsOnNode(configFile!!)
         }
 
         return 0
@@ -101,6 +180,39 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
         if (csrDef.networkMap != null) createNetworkCSRAndKeystore(csrDef, csrDef.networkMap, CertRole.NETWORK_MAP)
         if (csrDef.networkParameters != null) createNetworkCSRAndKeystore(csrDef, csrDef.networkParameters, CertRole.NETWORK_PARAMETERS)
 //        createNetworkCSRAndKeystores(csrDef)
+    }
+
+    private fun generateCSRsOnNode(configFile: Path) {
+        val csrDef = csrDefFromConfig(configFile)
+        val parseOptions = ConfigParseOptions.defaults().setAllowMissing(true)
+        val nodeConfig = ConfigFactory.parseFile(outputFile(base_directory!!, "node.conf").toFile(), parseOptions).resolve()
+        val legalName = CordaX500Name.parse(nodeConfig.getString("myLegalName"))
+        createNodeCSRAndKeystoresForOneNode(csrDef, legalName)
+    }
+
+    private fun createTrustStore() {
+        val cerFile = outputFile(cerFolder!!, "rca.cer")
+        val jksFile = outputFile("truststore.jks")
+        val cert = X509Utilities.loadCertificateFromPEMFile(cerFile)
+        val keyStore = loadOrCreateKeyStore(jksFile, truststorepass)
+        keyStore.setCertificateEntry(rootAlias, cert)
+        keyStore.save(jksFile, truststorepass)
+    }
+
+    private fun createJKSs(configFile: Path) {
+        val csrDef = csrDefFromConfig(configFile)
+        createNodeJKSs(csrDef)
+        if (csrDef.networkMap != null) createNetworkJKS(csrDef, networkmapAlias)
+        if (csrDef.networkParameters != null) createNetworkJKS(csrDef, networkparametersAlias)
+    }
+
+    private fun createJKSsOnNode(configFile: Path) {
+        val csrDef = csrDefFromConfig(configFile)
+        val parseOptions = ConfigParseOptions.defaults().setAllowMissing(true)
+        val nodeConfig = ConfigFactory.parseFile(outputFile(base_directory!!, "node.conf").toFile(), parseOptions).resolve()
+        val legalName = CordaX500Name.parse(nodeConfig.getString("myLegalName"))
+        createNodeSSLJKS(csrDef, legalName, true)
+        createNodeNodeJKS(csrDef, legalName, true)
     }
 
     private fun createRootAndTrustKeystores(certDef: CertDef): Pair<Path, Path> {
@@ -296,7 +408,7 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
         val nodeStorepass = certDef.nodes.storepass
         val nodeKeypass = certDef.nodes.keypass
         certDef.nodes.legalNames.forEachIndexed { index, legalName ->
-            val nodeOutputFolder = nodeParentOutputFolder() / folderNameFromLegalName(legalName)
+            val nodeOutputFolder = nodeParentOutputFolder() / nameFromLegalName(legalName)
             val nodeKeystoreFile = outputFile(nodeOutputFolder, "nodekeystore.jks")
             val nodeKeystore = loadOrCreateKeyStore(nodeKeystoreFile, nodeStorepass)
             /**
@@ -326,6 +438,43 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
                 sslKeystore.setKeyEntry(sslAliase, first.private, nodeKeypass.toCharArray(), arrayOf(second, caCert, rootCert))
             }
             sslKeystore.save(sslKeystoreFile, nodeStorepass)
+        }
+    }
+
+    private fun createNodeCSRAndKeystores(csrDef: CSRDef) {
+        csrDef.nodes?.forEachIndexed { index, legalName ->
+            createNodeCSRAndKeystoresForOneNode(csrDef, legalName)
+        }
+    }
+
+    private fun createNodeCSRAndKeystoresForOneNode(csrDef: CSRDef, legalName: CordaX500Name) {
+        /**
+         * For each node, generate 3 pairs of pem and jks
+         */
+        val alias = csrDef.alias
+        val storepass = csrDef.storepass
+        val keypass = csrDef.keypass
+        val zone = csrDef.zone
+        setOf("dummyca", "identity", "tls").forEach {
+            val certRole = when(it) {
+                "dummyca" -> CertRole.NODE_CA
+                "identity" -> CertRole.LEGAL_IDENTITY
+                else -> CertRole.TLS
+            }
+            val (keyPair, csr, cert) = generateCSRAndCert(legalName, certRole, zone)
+            val keystoreFile = outputFile("${nameFromLegalName(legalName).toLowerCase()}_$it.jks")
+            val keystore = loadOrCreateKeyStore(keystoreFile, storepass)
+            keystore.setKeyEntry(alias, keyPair.private, keypass.toCharArray(), arrayOf(cert))
+            keystore.save(keystoreFile, storepass)
+
+            /**
+             * Note: We save p10 after jks because when the parent folder csrs does not exists, JcaPENWriter errs out
+             * while loadOrCreateKeyStore can handle the situation.
+             */
+            val csrFile = outputFile("${nameFromLegalName(legalName).toLowerCase()}_$it.p10")
+            JcaPEMWriter(csrFile.writer()).use {
+                it.writeObject(PemObject("CERTIFICATE REQUEST", csr.encoded))
+            }
         }
     }
 
@@ -391,46 +540,13 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
         return Triple(keyPair, csr, cert)
     }
 
-    private fun createNodeCSRAndKeystores(csrDef: CSRDef) {
-        /**
-         * For each node, generate 3 pairs of pem and jks
-         */
-        val alias = csrDef.alias
-        val storepass = csrDef.storepass
-        val keypass = csrDef.keypass
-        val zone = csrDef.zone
-        csrDef.nodes?.forEachIndexed { index, legalName ->
-            setOf("dummyca", "identity", "tls").forEach {
-                val certRole = when(it) {
-                    "dummyca" -> CertRole.NODE_CA
-                    "identity" -> CertRole.LEGAL_IDENTITY
-                    else -> CertRole.TLS
-                }
-                val (keyPair, csr, cert) = generateCSRAndCert(legalName, certRole, zone)
-                val keystoreFile = outputFile("${folderNameFromLegalName(legalName).toLowerCase()}_$it.jks")
-                val keystore = loadOrCreateKeyStore(keystoreFile, storepass)
-                keystore.setKeyEntry(alias, keyPair.private, keypass.toCharArray(), arrayOf(cert))
-                keystore.save(keystoreFile, storepass)
-
-                /**
-                 * Note: We save p10 after jks because when the parent folder csrs does not exists, JcaPENWriter errs out
-                 * while loadOrCreateKeyStore can handle the situation.
-                 */
-                val csrFile = outputFile("${folderNameFromLegalName(legalName).toLowerCase()}_$it.p10")
-                JcaPEMWriter(csrFile.writer()).use {
-                    it.writeObject(PemObject("CERTIFICATE REQUEST", csr.encoded))
-                }
-            }
-        }
-    }
-
     private fun createNetworkCSRAndKeystore(csrDef: CSRDef, legalName: CordaX500Name, certRole: CertRole) {
         val alias = csrDef.alias
         val storepass = csrDef.storepass
         val keypass = csrDef.keypass
         val zone = csrDef.zone
         val (keyPair, csr, cert) = generateCSRAndCert(legalName, certRole, zone)
-        val keystoreFile = outputFile("${folderNameFromLegalName(legalName).toLowerCase()}.jks")
+        val keystoreFile = outputFile("${nameFromLegalName(legalName).toLowerCase()}.jks")
         val keystore = loadOrCreateKeyStore(keystoreFile, storepass)
         keystore.setKeyEntry(alias, keyPair.private, keypass.toCharArray(), arrayOf(cert))
         keystore.save(keystoreFile, storepass)
@@ -439,7 +555,7 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
          * Note: We save p10 after jks because when the parent folder csrs does not exists, JcaPENWriter errs out
          * while loadOrCreateKeyStore can handle the situation.
          */
-        val csrFile = outputFile("${folderNameFromLegalName(legalName).toLowerCase()}.p10")
+        val csrFile = outputFile("${nameFromLegalName(legalName).toLowerCase()}.p10")
         JcaPEMWriter(csrFile.writer()).use {
             it.writeObject(PemObject("CERTIFICATE REQUEST", csr.encoded))
         }
@@ -456,7 +572,7 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
                 else -> CertRole.NETWORK_PARAMETERS
             }
             val (keyPair, csr, cert) = generateCSRAndCert(legalName, certRole, zone)
-            val keystoreFile = outputFile("${folderNameFromLegalName(legalName).toLowerCase()}.jks")
+            val keystoreFile = outputFile("${nameFromLegalName(legalName).toLowerCase()}.jks")
             val keystore = loadOrCreateKeyStore(keystoreFile, storepass)
             keystore.setKeyEntry(alias, keyPair.private, keypass.toCharArray(), arrayOf(cert))
             keystore.save(keystoreFile, storepass)
@@ -465,7 +581,7 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
              * Note: We save p10 after jks because when the parent folder csrs does not exists, JcaPENWriter errs out
              * while loadOrCreateKeyStore can handle the situation.
              */
-            val csrFile = outputFile("${folderNameFromLegalName(legalName).toLowerCase()}.p10")
+            val csrFile = outputFile("${nameFromLegalName(legalName).toLowerCase()}.p10")
             JcaPEMWriter(csrFile.writer()).use {
                 it.writeObject(PemObject("CERTIFICATE REQUEST", csr.encoded))
             }
@@ -490,7 +606,7 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
         val nodeStorepass = certDef.notary.storepass
         val nodeKeypass = certDef.notary.keypass
         (certDef.notary.worker_legalNames + certDef.notary.service_legalName).forEachIndexed { index, legalName ->
-            val nodeOutputFolder = notaryParentOutputFolder() / folderNameFromLegalName(legalName)
+            val nodeOutputFolder = notaryParentOutputFolder() / nameFromLegalName(legalName)
             val nodeKeystoreFile = outputFile(nodeOutputFolder, "nodekeystore.jks")
             val nodeKeystore = loadOrCreateKeyStore(nodeKeystoreFile, nodeStorepass)
             /**
@@ -617,6 +733,96 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
         return Pair(keyPair, cert)
     }
 
+    private fun createNodeJKSs(csrDef: CSRDef) {
+        csrDef.nodes?.forEachIndexed { index, legalName ->
+            createNodeSSLJKS(csrDef, legalName)
+            createNodeNodeJKS(csrDef, legalName)
+        }
+    }
+
+    private fun createNodeSSLJKS(csrDef: CSRDef, legalName: CordaX500Name, isOnNode: Boolean = false) {
+        val partyName = nameFromLegalName(legalName)
+        val partyLabel = nameFromLegalNameInLowerCase(legalName)
+        val sourceStorepass = csrDef.storepass
+        val sourceKeypass = csrDef.keypass
+        val targetStorepass = keystorepass
+        val targetKeypass = keystorepass
+        val sourceAlias = csrDef.alias
+        val targetAlias = sslAliase
+
+        val cerFile = outputFile(cerFolder!!/"cer", "${partyLabel}_tls.cer")
+        val sourceJKSFile = outputFile(csrFolder!!, "${partyLabel}_tls.jks")
+        val targetJKSFile = if (isOnNode) outputFile(outputFolder!!, "sslkeystore.jks") else outputFile(outputFolder!!, "${partyName}/sslkeystore.jks")
+
+        val sourceKetStore = loadOrCreateKeyStore(sourceJKSFile, sourceStorepass)
+        val privateKey = sourceKetStore.getKey(sourceAlias, sourceKeypass.toCharArray())
+        val targetKeyStore = loadOrCreateKeyStore(targetJKSFile, targetStorepass)
+
+        val rootCert = X509Utilities.loadCertificateFromPEMFile(outputFile(cerFolder!!, "rca.cer"))
+        val issuingCA2Cert = X509Utilities.loadCertificateFromPEMFile(outputFile(cerFolder!!, "ica1.cer"))
+        val cert = X509Utilities.loadCertificateFromPEMFile(cerFile)
+
+        targetKeyStore.setKeyEntry(targetAlias, privateKey, targetKeypass.toCharArray(), arrayOf(cert, issuingCA2Cert, rootCert))
+
+        targetKeyStore.save(targetJKSFile, targetStorepass)
+    }
+
+    private fun createNodeNodeJKS(csrDef: CSRDef, legalName: CordaX500Name, isOnNode: Boolean = false) {
+        val partyName = nameFromLegalName(legalName)
+        val partyLabel = nameFromLegalNameInLowerCase(legalName)
+        val sourceStorepass = csrDef.storepass
+        val sourceKeypass = csrDef.keypass
+        val targetStorepass = keystorepass
+        val targetKeypass = keystorepass
+        val sourceAlias = csrDef.alias
+        val targetAlias_identity = identityAlias
+        val targetAlias_dummy = dummyNodeAlias
+
+        val cerFile_identity = outputFile(cerFolder!!/"cer","${partyLabel}_identity.cer")
+        val cerFile_dummy = outputFile(cerFolder!!/"cer","${partyLabel}_dummyca.cer")
+        val sourceJKSFile_identity = outputFile(csrFolder!!,"${partyLabel}_identity.jks")
+        val sourceJKSFile_dummy = outputFile(csrFolder!!, "${partyLabel}_dummyca.jks")
+        val targetJKSFile = if (isOnNode) outputFile(outputFolder!!,"nodekeystore.jks") else outputFile(outputFolder!!,"${partyName}/nodekeystore.jks")
+
+        val sourceKetStore_identity = loadOrCreateKeyStore(sourceJKSFile_identity, sourceStorepass)
+        val sourceKetStore_dummy = loadOrCreateKeyStore(sourceJKSFile_dummy, sourceStorepass)
+        val privateKey_identity = sourceKetStore_identity.getKey(sourceAlias, sourceKeypass.toCharArray())
+        val privateKey_dummy = sourceKetStore_dummy.getKey(sourceAlias, sourceKeypass.toCharArray())
+        val targetKeyStore = loadOrCreateKeyStore(targetJKSFile, targetStorepass)
+
+        val rootCert = X509Utilities.loadCertificateFromPEMFile(outputFile(cerFolder!!, "rca.cer"))
+        val issuingCA2Cert = X509Utilities.loadCertificateFromPEMFile(outputFile(cerFolder!!, "ica1.cer"))
+        val cert_identity = X509Utilities.loadCertificateFromPEMFile(cerFile_identity)
+        val cert_dummy = X509Utilities.loadCertificateFromPEMFile(cerFile_dummy)
+
+        targetKeyStore.setKeyEntry(targetAlias_dummy, privateKey_dummy, targetKeypass.toCharArray(), arrayOf(cert_dummy, issuingCA2Cert, rootCert))
+        targetKeyStore.setKeyEntry(targetAlias_identity, privateKey_identity, targetKeypass.toCharArray(), arrayOf(cert_identity, issuingCA2Cert, rootCert))
+
+        targetKeyStore.save(targetJKSFile, targetStorepass)
+    }
+
+    private fun createNetworkJKS(csrDef: CSRDef, targetAlias: String) {
+        val storepass = networkkeystorepass
+        val keypass = networkkeystorepass
+        val sourceAlias = csrDef.alias
+        val legalName = if (targetAlias == "networkmap") csrDef.networkMap!! else csrDef.networkParameters!!
+        val cerFile = outputFile(cerFolder!! / "cer", nameFromLegalNameInLowerCase(legalName) + ".cer")
+        val sourceJKSFile = outputFile(csrFolder!!, jksFileNameFromLegalName(legalName))
+        val targetJKSFile = outputFile(outputFolder!!, jksFileNameFromLegalName(legalName))
+
+        val sourceKetStore = loadOrCreateKeyStore(sourceJKSFile, storepass)
+        val privateKey = sourceKetStore.getKey(sourceAlias, keypass.toCharArray())
+        val targetKeyStore = loadOrCreateKeyStore(targetJKSFile, storepass)
+
+        val rootCert = X509Utilities.loadCertificateFromPEMFile(outputFile(cerFolder!!,"rca.cer"))
+        val issuingCA2Cert = X509Utilities.loadCertificateFromPEMFile(outputFile(cerFolder!!,"ica2.cer"))
+        val cert = X509Utilities.loadCertificateFromPEMFile(cerFile)
+
+        targetKeyStore.setKeyEntry(targetAlias, privateKey, keypass.toCharArray(), arrayOf(cert, issuingCA2Cert, rootCert))
+
+        targetKeyStore.save(targetJKSFile, storepass)
+    }
+
     private fun passCertConfig(config: Config) : CertDef {
         val zone = if (config.hasPath("zone")) config.getString("zone") else "DEV"
         val root = NameAndPass(
@@ -681,7 +887,6 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
                 nodes = nodes,
                 networkMap = if (config.hasPath("networkMap")) CordaX500Name.parse(config.getString("networkMap")) else null,
                 networkParameters = if (config.hasPath("networkParameters")) CordaX500Name.parse(config.getString("networkParameters")) else null,
-//                networkParameters = config.getString("networkParameters") ?.let { CordaX500Name.parse(it) },
                 alias = config.getString("alias"),
                 storepass = config.getString("storepass"),
                 keypass = config.getString("keypass")
@@ -735,8 +940,10 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
        val keypass: String
     )
 
-    private fun folderNameFromLegalName(legalName: CordaX500Name) = ("${legalName.commonName ?: legalName.organisationUnit ?: legalName.organisation}")//.toLowerCase()
-    private fun jksFileNameFromLegalName(legalName: CordaX500Name) = ("${folderNameFromLegalName(legalName)}.jks").toLowerCase()
+    private fun nameFromLegalName(legalName: CordaX500Name) = ("${legalName.commonName ?: legalName.organisationUnit ?: legalName.organisation}")//.toLowerCase()
+    private fun nameFromLegalNameInLowerCase(legalName: CordaX500Name) = "${nameFromLegalName(legalName)}".toLowerCase()
+    private fun jksFileNameFromLegalName(legalName: CordaX500Name) = nameFromLegalNameInLowerCase(legalName) + ".jks"
+//    private fun jksFileNameFromLegalName(legalName: CordaX500Name) = ("${nameFromLegalName(legalName)}.jks").toLowerCase()
     private fun outputFile(name: String) = outputFolder!! / name
     private fun outputFile(parent: Path, name: String) = parent / name
     private fun nodeParentOutputFolder() = outputFolder!! / "nodes"
