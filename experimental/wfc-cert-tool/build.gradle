@@ -3,6 +3,12 @@ apply plugin: 'kotlin'
 
 description 'Certificate generation tool for a test Corda network'
 
+repositories {
+    flatDir {
+        dir 'lib'
+    }
+}
+
 dependencies {
     compile project(':tools:cliutils')
     compile "org.slf4j:jul-to-slf4j:$slf4j_version"
@@ -10,6 +16,10 @@ dependencies {
     compile "com.jcabi:jcabi-manifests:$jcabi_manifests_version"
     compile project(':core')
     compile project(':node-api')
+
+//    compile fileTree(dir: 'lib', include: ['*.jar'])
+//    implementation files('lib/sunpkcs11-fx1.jar')
+    implementation name: 'sunpkcs11-fx'
 
     testCompile project(':test-utils')
     testCompile "junit:junit:$junit_version"

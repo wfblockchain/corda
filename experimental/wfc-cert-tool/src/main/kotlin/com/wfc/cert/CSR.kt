@@ -13,6 +13,7 @@ import net.corda.nodeapi.internal.crypto.save
 import org.bouncycastle.openssl.jcajce.JcaPEMWriter
 import org.bouncycastle.util.io.pem.PemObject
 import java.nio.file.Path
+import fx.security.pkcs11.SunPKCS11
 
 fun generateCSRs() {
     val configFile = inputParameter.configFile!!
