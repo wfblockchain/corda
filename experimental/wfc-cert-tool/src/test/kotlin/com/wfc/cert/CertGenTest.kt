@@ -33,6 +33,12 @@ class CertGenTest {
     }
 
     @Test
+    fun `load a cer file certificate`() {
+        val file = cerFile("partya_identity.cer")
+        val readCertificate = X509Utilities.loadCertificateFromPEMFile(file)
+    }
+
+    @Test
     fun `truststore`() {
         val cerFile = caCerFile("rca.cer")
         val jksFile = caCerFile("truststore.jks")
@@ -163,10 +169,5 @@ class CertGenTest {
 
     }
 
-    @Test
-    fun `load a cer file certificate`() {
-        val file = cerFile("partya_identity.cer")
-        val readCertificate = X509Utilities.loadCertificateFromPEMFile(file)
-    }
 
 }

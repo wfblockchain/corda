@@ -175,7 +175,10 @@ data class InputParameter (
         var outputFolder: Path? = null,
         var keystorepass: String = "cordacadevpass",
         var truststorepass: String = "trustpass",
-        var networkkeystorepass: String = "trustpass"
+        var networkkeystorepass: String = "trustpass",
+        var ocsp_caCert: Path? = null,
+        var ocsp_cert: Path? = null,
+        var ocsp_url: String = "http://validator.wellsfargo.com"
 )
 
 class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
@@ -194,6 +197,9 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
     private var jks: Boolean = false
     @Option(names = ["jksOnNode"], description = ["Command to generate jks files for node, ssl directly on the node"])
     private var jksOnNode: Boolean = false
+    @Option(names = ["ocsp"], description = ["Top command to perform OCSP function"])
+    private var ocsp: Boolean = false
+
 //    @Option(names = ["networkmap"], description = ["Command to generate networkmap.jks"])
 //    private var networkmap: Boolean = false
 //    @Option(names = ["networkparameters"], description = ["Command to generate networkparameters.jks"])
@@ -236,9 +242,6 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
     @Option(names = ["--base-directory"], paramLabel = "file", description = ["Path to the Corda node folder."])
     private var base_directory: Path? = null
 
-    /**
-     *
-     */
     @Option(names = ["--output"], paramLabel = "file", description = ["Path to output folder."])
     private var outputFolder: Path? = null
 
@@ -251,16 +254,26 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
     @Option(names = ["--network-keystore-pass"], paramLabel = "password", description = ["Password for the networkMap and networkparameters keystores."])
     private var networkkeystorepass: String = "trustpass"
 
+    @Option(names = ["--ocsp-caCert"], paramLabel = "OCSP ca cert", description = ["ca cert for OCSP."])
+    private var ocsp_caCert: Path? = null
+
+    @Option(names = ["--ocsp-cert"], paramLabel = "OCSP cert to check", description = ["cert for OCSP."])
+    private var ocsp_cert: Path? = null
+
+    @Option(names = ["--ocsp-url"], paramLabel = "OCSP cert to check", description = ["cert for OCSP."])
+    private var ocsp_url: String = "http://validator.wellsfargo.com"
+
     private fun Boolean.toInt() = if (this) 1 else 0
 
     override fun runProgram(): Int {
-        require(cert.toInt() + csr.toInt() + csrOnNode.toInt() + truststore.toInt() + jks.toInt() + jksOnNode.toInt() == 1) { "One and only one must be specified" }
+        require(cert.toInt() + csr.toInt() + csrOnNode.toInt() + truststore.toInt() + jks.toInt() + jksOnNode.toInt() + ocsp.toInt() == 1) { "One and only one command must be specified" }
 //        require(cert.toInt() + csr.toInt() + truststore.toInt() + networkmap.toInt() + networkparameters.toInt() + node.toInt() + ssl.toInt() == 1) { "One and only one must be specified" }
 //        require(cert.xor(csr)) { "One and only one of commands cert and csr must be specified" }
         require(((cert || csr || jksOnNode || jks || jksOnNode) && configFile != null) || !(cert || csr || jksOnNode || jks || jksOnNode)) { "The --config parameter must be specified for cert, csr, csrOnNode, jks and jksOnNode" }
         require((jks && csrFolder != null) || !jks) { "jks requires csr folder" }
         require(((truststore || jks) && cerFolder != null) || !(truststore || jks)) { "truststore and jks require cer folder" }
         require(((csrOnNode || jksOnNode) && base_directory != null) || !(csrOnNode || jksOnNode)) { "csrOnNode and jksOnNode require base-directory folder" }
+        require(ocsp && ocsp_caCert != null && ocsp_cert != null || !ocsp) { "ocsp requires caCert and cert" }
 
         if (outputFolder == null) outputFolder = if (cert) (configFile!!.parent) / "certs" else if (csr) (configFile!!.parent) / "csrs" else if (truststore || jks) cerFolder else null
         if (csrOnNode) outputFolder = base_directory!! / "csr"
@@ -280,6 +293,9 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
             it.keystorepass = this.keystorepass
             it.truststorepass = this.truststorepass
             it.networkkeystorepass = this.networkkeystorepass
+            it.ocsp_caCert = this.ocsp_caCert
+            it.ocsp_cert = this.ocsp_cert
+            it.ocsp_url = this.ocsp_url
         }
 
         if (cert) {
@@ -294,6 +310,8 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
             createJKSs()
         } else if (jksOnNode) {
             createJKSsOnNode()
+        } else if (ocsp) {
+            OCSP().ocsp()
         }
         /**
          * Note: This is for double protection since we have already done the require checking earlier.
@@ -313,7 +331,6 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
         keyStore.setCertificateEntry(rootAlias, cert)
         keyStore.save(jksFile, truststorepass)
     }
-
 
     data class CertDef (
             val zone: String = "DEV",
@@ -355,20 +372,5 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
        val storepass: String,
        val keypass: String
     )
-
-    /**
-     * Move the following to Common.Companion
-     */
-/*
-    private fun nameFromLegalName(legalName: CordaX500Name) = ("${legalName.commonName ?: legalName.organisationUnit ?: legalName.organisation}")//.toLowerCase()
-    private fun nameFromLegalNameInLowerCase(legalName: CordaX500Name) = "${nameFromLegalName(legalName)}".toLowerCase()
-    private fun jksFileNameFromLegalName(legalName: CordaX500Name) = nameFromLegalNameInLowerCase(legalName) + ".jks"
-//    private fun jksFileNameFromLegalName(legalName: CordaX500Name) = ("${nameFromLegalName(legalName)}.jks").toLowerCase()
-    private fun outputFile(name: String) = outputFolder!! / name
-    private fun outputFile(parent: Path, name: String) = parent / name
-//    private fun nodeParentOutputFolder() = outputFolder!! / "nodes"
-//    private fun notaryParentOutputFolder() = outputFolder!! / "notary"
-//
-*/
 
 }
