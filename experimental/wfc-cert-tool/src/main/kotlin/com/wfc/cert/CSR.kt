@@ -13,7 +13,6 @@ import net.corda.nodeapi.internal.crypto.save
 import org.bouncycastle.openssl.jcajce.JcaPEMWriter
 import org.bouncycastle.util.io.pem.PemObject
 import java.nio.file.Path
-import fx.security.pkcs11.SunPKCS11
 
 fun generateCSRs() {
     val configFile = inputParameter.configFile!!
@@ -26,7 +25,8 @@ fun generateCSRs() {
 //        createNetworkCSRAndKeystores(csrDef)
 }
 
-fun generateCSRsOnNode() {
+fun generateCSRsOnNode(hasHSM: Boolean) {
+    println("generateCSRsOnNode - start with hasHSM = $hasHSM")
     val configFile = inputParameter.configFile!!
     val base_directory = inputParameter.base_directory!!
     val outputFolder = inputParameter.outputFolder!!
@@ -35,10 +35,11 @@ fun generateCSRsOnNode() {
     val parseOptions = ConfigParseOptions.defaults().setAllowMissing(true)
     val nodeConfig = ConfigFactory.parseFile(Common.outputFile(base_directory, "node.conf").toFile(), parseOptions).resolve()
     val legalName = CordaX500Name.parse(nodeConfig.getString("myLegalName"))
-    createNodeCSRAndKeystoresForOneNode(csrDef, legalName, outputFolder)
+    createNodeCSRAndKeystoresForOneNode(csrDef, legalName, outputFolder, hasHSM)
 }
 
-private fun createNodeCSRAndKeystoresForOneNode(csrDef: CertGen.CSRDef, legalName: CordaX500Name, outputFolder: Path) {
+private fun createNodeCSRAndKeystoresForOneNode(csrDef: CertGen.CSRDef, legalName: CordaX500Name, outputFolder: Path, hasHSM: Boolean = false) {
+    println("createNodeCSRAndKeystoresForOneNode - start with hasHSM = $hasHSM")
     /**
      * For each node, generate 3 pairs of pem and jks
      */
@@ -52,11 +53,12 @@ private fun createNodeCSRAndKeystoresForOneNode(csrDef: CertGen.CSRDef, legalNam
             "identity" -> CertRole.LEGAL_IDENTITY
             else -> CertRole.TLS
         }
-        val (keyPair, csr, cert) = Common.generateCSRAndCert(legalName, certRole, zone)
+        val (keyPair, csr, cert) = Common.generateCSRAndCert(legalName, certRole, zone, hasHSM || (it == "dummyca"))
         val keystoreFile = Common.outputFile(outputFolder, "${Common.nameFromLegalName(legalName).toLowerCase()}_$it.jks")
         val keystore = loadOrCreateKeyStore(keystoreFile, storepass)
         keystore.setKeyEntry(alias, keyPair.private, keypass.toCharArray(), arrayOf(cert))
         keystore.save(keystoreFile, storepass)
+        println("createNodeCSRAndKeystoresForOneNode - keystore.save in ${keystoreFile.fileName} for $it - done")
 
         /**
          * Note: We save p10 after jks because when the parent folder csrs does not exists, JcaPENWriter errs out
@@ -66,6 +68,7 @@ private fun createNodeCSRAndKeystoresForOneNode(csrDef: CertGen.CSRDef, legalNam
         JcaPEMWriter(csrFile.writer()).use {
             it.writeObject(PemObject("CERTIFICATE REQUEST", csr.encoded))
         }
+        println("createNodeCSRAndKeystoresForOneNode - JcaPEMWriter in ${csrFile.fileName} for $it - done")
     }
 }
 

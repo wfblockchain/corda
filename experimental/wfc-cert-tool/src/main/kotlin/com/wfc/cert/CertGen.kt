@@ -17,10 +17,12 @@ import com.wfc.cert.Common.Companion.networkparametersAlias
 import com.wfc.cert.Common.Companion.outputFile
 import com.wfc.cert.Common.Companion.rootAlias
 import com.wfc.cert.Common.Companion.sslAliase
+import fx.security.pkcs11.SunPKCS11
 import net.corda.cliutils.CordaCliWrapper
 import net.corda.cliutils.start
 import net.corda.core.CordaOID
 import net.corda.core.crypto.Crypto
+import net.corda.core.crypto.SignatureScheme
 import net.corda.core.crypto.random63BitValue
 import net.corda.core.identity.CordaX500Name
 import net.corda.core.internal.CertRole
@@ -43,8 +45,7 @@ import picocli.CommandLine.Option
 import java.lang.IllegalArgumentException
 import java.math.BigInteger
 import java.nio.file.Path
-import java.security.KeyPair
-import java.security.SignatureException
+import java.security.*
 import java.security.cert.X509Certificate
 import java.util.*
 
@@ -70,6 +71,8 @@ class Common {
         const val sslAliase = "cordaclienttls"
         const val networkmapAlias = "networkmap"
         const val networkparametersAlias = "networkparameters"
+        const val HSM_PROVIDER = "Futurex"
+
         val rsaScheme = Crypto.RSA_SHA256
         val eccScheme = Crypto.ECDSA_SECP256R1_SHA256
 
@@ -104,10 +107,22 @@ class Common {
             )
         }
 
-        fun generateCSRAndCert(legalName: CordaX500Name, certRole: CertRole, zone: String): Triple<KeyPair, PKCS10CertificationRequest, X509Certificate> {
+        fun generateCSRAndCert(legalName: CordaX500Name, certRole: CertRole, zone: String, hasHSM: Boolean = false): Triple<KeyPair, PKCS10CertificationRequest, X509Certificate> {
+            println("generateCSRAndCert - start for legalName = ${legalName} with hasHSM = $hasHSM")
             val signatureScheme = eccScheme
-            val keyPair = Crypto.generateKeyPair(signatureScheme)
-            val signer = ContentSignerBuilder.build(signatureScheme, keyPair.private, Crypto.findProvider(signatureScheme.providerName))
+            val keyPair = if (!hasHSM)
+                Crypto.generateKeyPair(signatureScheme)
+            else {
+                val loginStr: String = inputParameter.hsm_login!!
+                generateKeypairOnHSM(signatureScheme, loginStr)
+            }
+            println("generateCSRAndCert - generateKeyPair gets pubKey = ${keyPair.public}, privKey = ${keyPair.private} - done")
+            val signer = if (!hasHSM)
+                ContentSignerBuilder.build(signatureScheme, keyPair.private, Crypto.findProvider(signatureScheme.providerName))
+            else
+                ContentSignerBuilder.build(signatureScheme, keyPair.private, SunPKCS11())
+            println("generateCSRAndCert - ContentSignerBuilder - done")
+
             val extGen = ExtensionsGenerator()
             /**
              * Basic Constraint
@@ -141,6 +156,7 @@ class Common {
                             throw SignatureException("The certificate signing request signature validation failed.")
                         }
                     }
+            println("generateCSRAndCert - JcaPKCS10CertificationRequestBuilder - done")
 
             val serial = BigInteger.valueOf(random63BitValue())
             /**
@@ -162,7 +178,52 @@ class Common {
                 require(isSignatureValid(JcaContentVerifierProviderBuilder().build(keyPair.public))){"Invalid signature"}
                 toJca()
             }
+            println("generateCSRAndCert - JcaX509v3CertificateBuilder gets cert ${cert.subjectDN} - done")
             return Triple(keyPair, csr, cert)
+        }
+
+        /**
+         * This is a sample code for generating a keypay.
+         * Q: Where is the HSM connection done?
+         * A: FutureX has a privare flag on the key. If true, then authentication is required.
+         *      We will use private true.
+         *      KeyStore.load(...) is the authentication piece.
+         * Q: What does C_Login invocation do?
+         *      hSession, CKU_USER, (CK_BYTE *)"123456", 6);
+         *      Do we have the equivalent in Java?
+         * A: KeyStore.load(...)
+         * Q: Where is the HSM authentication done?
+         * A: KeyStore.load(...)
+         * Q: Which slot is keypair stored in?
+         * Q: How about label which is the unique identifier by the outside to link the private key inside HSM?
+         * A: Looks like if we don't explicitly specify it, it will be created by HSM automatically.
+         */
+        fun generateKeypairOnHSM(sigScheme: SignatureScheme, loginStr: String): KeyPair {
+            println("generateKeypairOnHSM - start")
+            Security.addProvider(SunPKCS11())
+            println("generateKeypairOnHSM - addProvider(SunPKCS11()) - done")
+            val ks: KeyStore = KeyStore.getInstance("PKSC11", HSM_PROVIDER)
+            println("generateKeypairOnHSM - KeyStore - done")
+            ks.load(null, loginStr.toCharArray())
+            println("generateKeypairOnHSM - authenticate with loginStr = $loginStr - done")
+            val kpg: KeyPairGenerator = KeyPairGenerator.getInstance(sigScheme.algorithmName, HSM_PROVIDER)
+            println("generateKeypairOnHSM - KeyPairGenerator with algorithmName = ${sigScheme.algorithmName} - done")
+            /**
+             * Do we need to use P11KeyParams for key pair generation?
+             * We only have examples for symmetric keys.
+             * One good (bad) aspect of it is to set label
+             */
+            /*
+            val kparam = P11KeyParams()
+            kparam.label = "abd"
+            kpg.initialize(kparam)
+            */
+            kpg.initialize(sigScheme.algSpec)
+            println("generateKeypairOnHSM - KeyPairGenerator initialization with algSpec = ${sigScheme.algSpec} - done")
+
+            val kp: KeyPair = kpg.genKeyPair()  // only reference to private key - label
+            println("generateKeypairOnHSM - genKeyPair() gets pubKey = ${kp.public}, privKey = ${kp.private} - done")
+            return kp  // only reference to private key - label
         }
     }
 }
@@ -178,7 +239,8 @@ data class InputParameter (
         var networkkeystorepass: String = "trustpass",
         var ocsp_caCert: Path? = null,
         var ocsp_cert: Path? = null,
-        var ocsp_url: String = "http://validator.wellsfargo.com"
+        var ocsp_url: String = "http://validator.wellsfargo.com",
+        var hsm_login: String? = null
 )
 
 class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
@@ -190,6 +252,9 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
 
     @Option(names = ["csrOnNode"], description = ["Command to generate CSRs directly on the node"])
     private var csrOnNode: Boolean = false
+
+    @Option(names = ["csrOnNodeWithHSM"], description = ["Command to generate CSRs directly on the node with HSM"])
+    private var csrOnNodeWithHSM: Boolean = false
 
     @Option(names = ["truststore"], description = ["Command to generate truststore.jks from cer"])
     private var truststore: Boolean = false
@@ -263,20 +328,24 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
     @Option(names = ["--ocsp-url"], paramLabel = "OCSP cert to check", description = ["cert for OCSP."])
     private var ocsp_url: String = "http://validator.wellsfargo.com"
 
+    @Option(names = ["--hsm-login"], paramLabel = "HSM login string", description = ["HSM login string."])
+    private var hsm_login: String? = null
+
     private fun Boolean.toInt() = if (this) 1 else 0
 
     override fun runProgram(): Int {
-        require(cert.toInt() + csr.toInt() + csrOnNode.toInt() + truststore.toInt() + jks.toInt() + jksOnNode.toInt() + ocsp.toInt() == 1) { "One and only one command must be specified" }
+        require(cert.toInt() + csr.toInt() + csrOnNode.toInt() + csrOnNodeWithHSM.toInt() + truststore.toInt() + jks.toInt() + jksOnNode.toInt() + ocsp.toInt() == 1) { "One and only one command must be specified" }
 //        require(cert.toInt() + csr.toInt() + truststore.toInt() + networkmap.toInt() + networkparameters.toInt() + node.toInt() + ssl.toInt() == 1) { "One and only one must be specified" }
 //        require(cert.xor(csr)) { "One and only one of commands cert and csr must be specified" }
-        require(((cert || csr || jksOnNode || jks || jksOnNode) && configFile != null) || !(cert || csr || jksOnNode || jks || jksOnNode)) { "The --config parameter must be specified for cert, csr, csrOnNode, jks and jksOnNode" }
+        require(((cert || csr || csrOnNode || csrOnNodeWithHSM || jks || jksOnNode) && configFile != null) || !(cert || csr || csrOnNode || csrOnNodeWithHSM || jks || jksOnNode)) { "The --config parameter must be specified for cert, csr, csrOnNode, csrOnNodeWithHSM, jks and jksOnNode" }
         require((jks && csrFolder != null) || !jks) { "jks requires csr folder" }
-        require(((truststore || jks) && cerFolder != null) || !(truststore || jks)) { "truststore and jks require cer folder" }
-        require(((csrOnNode || jksOnNode) && base_directory != null) || !(csrOnNode || jksOnNode)) { "csrOnNode and jksOnNode require base-directory folder" }
+        require(((truststore || jks) && cerFolder != null) || !(truststore || jks)) { "truststore or jks requires cer folder" }
+        require(((csrOnNode || csrOnNodeWithHSM || jksOnNode) && base_directory != null) || !(csrOnNode || csrOnNodeWithHSM || jksOnNode)) { "csrOnNode, csrOnNodeWithHSM or jksOnNode requires base-directory folder" }
+        require(((csrOnNodeWithHSM) && hsm_login != null) || !(csrOnNodeWithHSM)) { "csrOnNodeWithHSM requires hsm-login" }
         require(ocsp && ocsp_caCert != null && ocsp_cert != null || !ocsp) { "ocsp requires caCert and cert" }
 
         if (outputFolder == null) outputFolder = if (cert) (configFile!!.parent) / "certs" else if (csr) (configFile!!.parent) / "csrs" else if (truststore || jks) cerFolder else null
-        if (csrOnNode) outputFolder = base_directory!! / "csr"
+        if (csrOnNode || csrOnNodeWithHSM) outputFolder = base_directory!! / "csr"
         if (jksOnNode) outputFolder = base_directory!! / "certificates"
         if (jksOnNode) csrFolder = base_directory!! / "csr"
         if (jksOnNode) cerFolder = base_directory!! / "cer"
@@ -296,14 +365,17 @@ class CertGen : CordaCliWrapper("certgen", "Generate certificates or CSRs") {
             it.ocsp_caCert = this.ocsp_caCert
             it.ocsp_cert = this.ocsp_cert
             it.ocsp_url = this.ocsp_url
+            it.hsm_login = this.hsm_login
         }
 
         if (cert) {
             generateCerts()
         } else if (csr) {
             generateCSRs()
-        } else if (csrOnNode) {
-            generateCSRsOnNode()
+        } else if (csrOnNode || csrOnNodeWithHSM) {
+            generateCSRsOnNode(csrOnNodeWithHSM)
+//        } else if (csrOnNodeWithHSM) {
+//            generateCSRsOnNodeWithHSM()
         } else if (truststore) {
             createTrustStore()
         } else if (jks) {
