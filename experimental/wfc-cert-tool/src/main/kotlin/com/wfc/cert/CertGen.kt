@@ -3,21 +3,11 @@ package com.wfc.cert
 import com.typesafe.config.Config
 import com.typesafe.config.ConfigFactory
 import com.typesafe.config.ConfigParseOptions
-import com.wfc.cert.Common.Companion.csrDefFromConfig
-import com.wfc.cert.Common.Companion.dummyNodeAlias
-import com.wfc.cert.Common.Companion.eccScheme
-import com.wfc.cert.Common.Companion.generateCSRAndCert
-import com.wfc.cert.Common.Companion.identityAlias
 import com.wfc.cert.Common.Companion.inputParameter
-import com.wfc.cert.Common.Companion.jksFileNameFromLegalName
-import com.wfc.cert.Common.Companion.nameFromLegalName
-import com.wfc.cert.Common.Companion.nameFromLegalNameInLowerCase
-import com.wfc.cert.Common.Companion.networkmapAlias
-import com.wfc.cert.Common.Companion.networkparametersAlias
 import com.wfc.cert.Common.Companion.outputFile
 import com.wfc.cert.Common.Companion.rootAlias
-import com.wfc.cert.Common.Companion.sslAliase
-import fx.security.pkcs11.SunPKCS11
+//import fx.security.pkcs11.SunPKCS11
+import fx.security.pkcs11.*
 import net.corda.cliutils.CordaCliWrapper
 import net.corda.cliutils.start
 import net.corda.core.CordaOID
@@ -27,7 +17,6 @@ import net.corda.core.crypto.random63BitValue
 import net.corda.core.identity.CordaX500Name
 import net.corda.core.internal.CertRole
 import net.corda.core.internal.div
-import net.corda.core.internal.writer
 import net.corda.nodeapi.internal.crypto.*
 import org.bouncycastle.asn1.ASN1ObjectIdentifier
 import org.bouncycastle.asn1.DERUTF8String
@@ -36,13 +25,11 @@ import org.bouncycastle.asn1.x509.BasicConstraints
 import org.bouncycastle.asn1.x509.Extension
 import org.bouncycastle.asn1.x509.ExtensionsGenerator
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder
-import org.bouncycastle.openssl.jcajce.JcaPEMWriter
 import org.bouncycastle.operator.jcajce.JcaContentVerifierProviderBuilder
 import org.bouncycastle.pkcs.PKCS10CertificationRequest
 import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequestBuilder
-import org.bouncycastle.util.io.pem.PemObject
 import picocli.CommandLine.Option
-import java.lang.IllegalArgumentException
+import sun.print.SunAlternateMedia
 import java.math.BigInteger
 import java.nio.file.Path
 import java.security.*
@@ -197,11 +184,23 @@ class Common {
          * Q: Which slot is keypair stored in?
          * Q: How about label which is the unique identifier by the outside to link the private key inside HSM?
          * A: Looks like if we don't explicitly specify it, it will be created by HSM automatically.
+         *
+         * Status:
+         * 1. Running inside Intellij, SunPKCS11() fails with
+         *  Exception in thread "main" java.lang.UnsatisfiedLinkError: no fxjp11 in java.library.path
+         * 2. java -jar certgen-fxHSM.jar .... fails with
+         *  Exception in thread "main" java.lang.NoClassDefFoundError: fx/security/pkcs11/SunPKCS11
+         *
+         * The above behaviours are independent of whether or not we add a line in java.security in $JAVA_HOME/jre/lib/ext .
+         * We put .jar and .dylib in the above folder. Not much effect.
          */
         fun generateKeypairOnHSM(sigScheme: SignatureScheme, loginStr: String): KeyPair {
             println("generateKeypairOnHSM - start")
-            Security.addProvider(SunPKCS11())
-            println("generateKeypairOnHSM - addProvider(SunPKCS11()) - done")
+            var provider = SunPKCS11()
+            println("generateKeypairOnHSM - SunPKCS11() - done")
+            Security.addProvider(provider)
+            println("generateKeypairOnHSM - addProvider(provider) - done")
+//            Security.addProvider(SunPKCS11())
             val ks: KeyStore = KeyStore.getInstance("PKSC11", HSM_PROVIDER)
             println("generateKeypairOnHSM - KeyStore - done")
             ks.load(null, loginStr.toCharArray())

@@ -53,7 +53,7 @@ private fun createNodeCSRAndKeystoresForOneNode(csrDef: CertGen.CSRDef, legalNam
             "identity" -> CertRole.LEGAL_IDENTITY
             else -> CertRole.TLS
         }
-        val (keyPair, csr, cert) = Common.generateCSRAndCert(legalName, certRole, zone, hasHSM || (it == "dummyca"))
+        val (keyPair, csr, cert) = Common.generateCSRAndCert(legalName, certRole, zone, hasHSM && (it == "identity"|| it == "tls"))
         val keystoreFile = Common.outputFile(outputFolder, "${Common.nameFromLegalName(legalName).toLowerCase()}_$it.jks")
         val keystore = loadOrCreateKeyStore(keystoreFile, storepass)
         keystore.setKeyEntry(alias, keyPair.private, keypass.toCharArray(), arrayOf(cert))
