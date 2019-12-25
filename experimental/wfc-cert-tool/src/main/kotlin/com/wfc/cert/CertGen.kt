@@ -6,8 +6,9 @@ import com.typesafe.config.ConfigParseOptions
 import com.wfc.cert.Common.Companion.inputParameter
 import com.wfc.cert.Common.Companion.outputFile
 import com.wfc.cert.Common.Companion.rootAlias
-//import fx.security.pkcs11.SunPKCS11
+//import fx.security.pkcs11.SunPKCS11 as fxSunPKCS11
 import fx.security.pkcs11.*
+//import sun.security.pkcs11.* //SunPKCS11
 import net.corda.cliutils.CordaCliWrapper
 import net.corda.cliutils.start
 import net.corda.core.CordaOID
@@ -170,9 +171,9 @@ class Common {
         }
 
         /**
-         * This is a sample code for generating a keypay.
+         * This is a sample code for generating a keypair.
          * Q: Where is the HSM connection done?
-         * A: FutureX has a privare flag on the key. If true, then authentication is required.
+         * A: FutureX has a private flag on the key. If true, then authentication is required.
          *      We will use private true.
          *      KeyStore.load(...) is the authentication piece.
          * Q: What does C_Login invocation do?
@@ -184,6 +185,7 @@ class Common {
          * Q: Which slot is keypair stored in?
          * Q: How about label which is the unique identifier by the outside to link the private key inside HSM?
          * A: Looks like if we don't explicitly specify it, it will be created by HSM automatically.
+         * Per David Close, FX label is associated with the JKS alias name, such as cordaclientca and identity-private-key
          *
          * Status:
          * 1. Running inside Intellij, SunPKCS11() fails with
@@ -195,13 +197,16 @@ class Common {
          * We put .jar and .dylib in the above folder. Not much effect.
          */
         fun generateKeypairOnHSM(sigScheme: SignatureScheme, loginStr: String): KeyPair {
+
+//            JvmModuleProtoBuf.Module.getDefaultInstance()
             println("generateKeypairOnHSM - start")
-            var provider = SunPKCS11()
+            var provider: Provider = SunPKCS11()
+//            provider.login (null, callBack)
             println("generateKeypairOnHSM - SunPKCS11() - done")
             Security.addProvider(provider)
             println("generateKeypairOnHSM - addProvider(provider) - done")
 //            Security.addProvider(SunPKCS11())
-            val ks: KeyStore = KeyStore.getInstance("PKSC11", HSM_PROVIDER)
+            val ks: KeyStore = KeyStore.getInstance("PKCS11", HSM_PROVIDER)
             println("generateKeypairOnHSM - KeyStore - done")
             ks.load(null, loginStr.toCharArray())
             println("generateKeypairOnHSM - authenticate with loginStr = $loginStr - done")
@@ -210,18 +215,25 @@ class Common {
             /**
              * Do we need to use P11KeyParams for key pair generation?
              * We only have examples for symmetric keys.
-             * One good (bad) aspect of it is to set label
+             * One useful aspect of it is to set label which corresponds to alias in jks
+             * How to identify the Private key inside HSM? label? Florian says no; he suggests setKeyEntry(...)
              */
-            /*
             val kparam = P11KeyParams()
-            kparam.label = "abd"
+            kparam.label = "identity-private-key"
+
             kpg.initialize(kparam)
-            */
+
             kpg.initialize(sigScheme.algSpec)
             println("generateKeypairOnHSM - KeyPairGenerator initialization with algSpec = ${sigScheme.algSpec} - done")
 
             val kp: KeyPair = kpg.genKeyPair()  // only reference to private key - label
             println("generateKeypairOnHSM - genKeyPair() gets pubKey = ${kp.public}, privKey = ${kp.private} - done")
+            /**
+             * Save ks inside HSM
+             * No need to .save() or .store() because setKeyEntry for PKCS11 automatically saves in HSM
+             */
+//            ks.setKeyEntry("alias_identity", kp.private.encoded, "password".toCharArray(), arrayOf())
+//            ks.store()// .save()
             return kp  // only reference to private key - label
         }
     }

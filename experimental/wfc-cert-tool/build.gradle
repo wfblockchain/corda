@@ -17,6 +17,12 @@ dependencies {
     compile project(':core')
     compile project(':node-api')
 
+    /**
+     * How to include an external .jar in lib?
+     * compile fileTree(...) works.
+     * implemtation files(...) does not work.
+     * flatDir {} + implementation name also works.
+     */
 //    compile fileTree(dir: 'lib', include: ['*.jar'])
 //    implementation files('lib/sunpkcs11-fx1.jar')
     implementation name: 'sunpkcs11-fx'

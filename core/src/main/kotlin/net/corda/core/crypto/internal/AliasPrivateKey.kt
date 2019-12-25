@@ -14,6 +14,8 @@ import java.security.spec.PKCS8EncodedKeySpec
  * leaves the box. This class wraps a [String] key alias into a [PrivateKey] object, which helps on transferring
  * [KeyPair] objects without exposing the private key material. Then, whenever we need to sign with the actual private
  * key, we provide the [alias] from this [AliasPrivateKey] to the underlying HSM implementation.
+ *
+ * alias: cordaclientca, identity-private-key with partitions; 4.3 or 4.4 will have custom aliases
  */
 data class AliasPrivateKey(val alias: String): PrivateKey {
 
