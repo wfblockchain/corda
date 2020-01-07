@@ -20,7 +20,7 @@ import kotlin.test.assertTrue
  * If there is no HSM setup, need to comment out the whole class for safety.
  */
 class HSMTest_fx {
-    val configFileName = "C:/Users/szhang0/z/bps/Blockchain/Corda/utimaco/CryptoServer/Simulator/sun_pkcs11.cfg"
+    val configFileName = "not used for fx"
 //    val pin = "123456"
     val pin = "safest"
     val keypass = "trustpass"
@@ -30,7 +30,7 @@ class HSMTest_fx {
     val aliasForJKS = "csr"
     val zone = "DEV"
     val ecCurve = Common.eccCurve //"secp256r1"
-    val outputFolder: Path = Paths.get("C:/Users/szhang0/z/bps/Blockchain/Corda/utimaco/CryptoServer/Simulator/tests")
+    val outputFolder: Path = Paths.get("/Users/johnz/Downloads/futurex/test")
     val jksProvider = cordaBouncyCastleProvider
     lateinit var keyStore: KeyStore
     /**
@@ -41,7 +41,7 @@ class HSMTest_fx {
 
     @Before
     fun setup() {
-        val (ks, prov) = HSM.loginHSM(pin, "SunPKCS11", configFileName)
+        val (ks, prov) = HSM.loginHSM(pin, "Futurex", configFileName)
         keyStore = ks
         provider = prov
         dummyCSRBuilder = CSRBuilder(keyStoreType = "JKS", provider = provider, legalName = x500Name)
