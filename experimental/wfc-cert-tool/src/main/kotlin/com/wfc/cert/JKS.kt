@@ -45,7 +45,7 @@ private fun createNodeSSLJKS(csrDef: CertGen.CSRDef, legalName: CordaX500Name, i
     val targetStorepass = inputParameter.keystorepass
     val targetKeypass = inputParameter.keystorepass
     val sourceAlias = csrDef.alias
-    val targetAlias = Common.sslAliase
+    val targetAlias = Common.aliasFull(Common.sslAliase, legalName, csrDef.zone)
 
     val cerFile = Common.outputFile((inputParameter.cerFolder!!) / "cer", "${partyLabel}_tls.cer")
     val sourceJKSFile = Common.outputFile(inputParameter.csrFolder!!, "${partyLabel}_tls.jks")
@@ -72,8 +72,8 @@ private fun createNodeNodeJKS(csrDef: CertGen.CSRDef, legalName: CordaX500Name, 
     val targetStorepass = inputParameter.keystorepass
     val targetKeypass = inputParameter.keystorepass
     val sourceAlias = csrDef.alias
-    val targetAlias_identity = Common.identityAlias
-    val targetAlias_dummy = Common.dummyNodeAlias
+    val targetAlias_identity = Common.aliasFull(Common.identityAlias, legalName, csrDef.zone)
+    val targetAlias_dummy = Common.aliasFull(Common.dummyNodeAlias, legalName, csrDef.zone)
 
     val cerFile_identity = Common.outputFile(inputParameter.cerFolder!! / "cer", "${partyLabel}_identity.cer")
     val cerFile_dummy = Common.outputFile(inputParameter.cerFolder!! / "cer", "${partyLabel}_dummyca.cer")

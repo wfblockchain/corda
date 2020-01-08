@@ -79,6 +79,9 @@ class Common {
 //        fun outputFile(name: String) = outputFolder!! / name
         fun outputFile(parent: Path, name: String) = parent / name
 
+        fun aliasSuffix(legalName: CordaX500Name, zone: String) = nameFromLegalName(legalName) + "_" + zone
+        fun aliasFull(alias: String, legalName: CordaX500Name, zone: String) = alias + "_" + aliasSuffix(legalName, zone)
+
         fun nodeParentOutputFolder(outputFolder: Path) = outputFolder / "nodes"
         fun notaryParentOutputFolder(outputFolder: Path) = outputFolder / "notary"
 

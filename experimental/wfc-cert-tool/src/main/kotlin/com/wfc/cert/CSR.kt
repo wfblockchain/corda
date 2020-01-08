@@ -77,7 +77,7 @@ private fun createNodeCSRAndKeystoresForOneNode_w_CSRBuilder(csrDef: CertGen.CSR
             saveCSRFile(builderData.csr, legalName, outputFolder, certFor)
         }
         else {
-            val aliasForHSM = if (certFor == "dummyca") Common.dummyNodeAlias else Common.identityAlias
+            val aliasForHSM = Common.aliasFull(if (certFor == "dummyca") Common.dummyNodeAlias else Common.identityAlias, legalName, zone)
             // Save private key and cert in HSM
             builderData.keyStore.deleteEntry(aliasForHSM)
             builderData.keyStore.setKeyEntry(aliasForHSM, builderData.keyPair.private, null, arrayOf(builderData.cert))
